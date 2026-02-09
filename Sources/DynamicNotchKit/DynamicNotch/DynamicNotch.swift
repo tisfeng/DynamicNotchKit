@@ -447,6 +447,34 @@ private extension DynamicNotch {
         menubarHeight = screen.menubarHeight
     }
 
+    func makePanelFrame(for screen: NSScreen) -> NSRect {
+        let size = NSSize(
+            width: screen.frame.width / 2,
+            height: screen.frame.height / 2
+        )
+        let origin = NSPoint(
+            x: screen.frame.midX - (size.width / 2),
+            y: screen.frame.maxY - size.height
+        )
+
+        return NSRect(origin: origin, size: size)
+    }
+
+    func makeNotchRootView(style: DynamicNotchStyle) -> NotchContentView<Expanded, CompactLeading, CompactTrailing> {
+        NotchContentView(dynamicNotch: self, style: style)
+    }
+
+    func updateWindowContent(_ window: NSWindow, style: DynamicNotchStyle) {
+        let rootView = makeNotchRootView(style: style)
+
+        if let hostingView = window.contentView as? NSHostingView<NotchContentView<Expanded, CompactLeading, CompactTrailing>> {
+            hostingView.rootView = rootView
+            hostingView.layoutSubtreeIfNeeded()
+        } else {
+            window.contentView = NSHostingView(rootView: rootView)
+        }
+    }
+
     func refreshWindowForScreenChange(on screen: NSScreen, style: DynamicNotchStyle) {
         updateScreenMetrics(for: screen)
 
@@ -457,30 +485,8 @@ private extension DynamicNotch {
         }
 
         logInfo("refresh window: update frame/content in-place displayID=\(screen.displayID?.description ?? "nil")")
-
-        let size = NSSize(
-            width: screen.frame.width / 2,
-            height: screen.frame.height / 2
-        )
-        let origin = NSPoint(
-            x: screen.frame.midX - (size.width / 2),
-            y: screen.frame.maxY - size.height
-        )
-
-        window.setFrame(
-            NSRect(
-                origin: origin,
-                size: size
-            ),
-            display: false
-        )
-
-        if let hostingView = window.contentView as? NSHostingView<NotchContentView<Expanded, CompactLeading, CompactTrailing>> {
-            hostingView.rootView = NotchContentView(dynamicNotch: self, style: style)
-            hostingView.layoutSubtreeIfNeeded()
-        } else {
-            window.contentView = NSHostingView(rootView: NotchContentView(dynamicNotch: self, style: style))
-        }
+        window.setFrame(makePanelFrame(for: screen), display: false)
+        updateWindowContent(window, style: style)
 
         window.layoutIfNeeded()
     }
@@ -496,7 +502,7 @@ private extension DynamicNotch {
         updateScreenMetrics(for: screen)
 
         let effectiveStyle = effectiveStyle(for: screen)
-        let view = NSHostingView(rootView: NotchContentView(dynamicNotch: self, style: effectiveStyle))
+        let view = NSHostingView(rootView: makeNotchRootView(style: effectiveStyle))
 
         let panel = DynamicNotchPanel(
             contentRect: .zero,
@@ -506,22 +512,7 @@ private extension DynamicNotch {
         )
         panel.contentView = view
 
-        let size = NSSize(
-            width: screen.frame.width / 2,
-            height: screen.frame.height / 2
-        )
-        let origin = NSPoint(
-            x: screen.frame.midX - (size.width / 2),
-            y: screen.frame.maxY - size.height
-        )
-
-        panel.setFrame(
-            NSRect(
-                origin: origin,
-                size: size
-            ),
-            display: false
-        )
+        panel.setFrame(makePanelFrame(for: screen), display: false)
 
         panel.layoutIfNeeded()
 
