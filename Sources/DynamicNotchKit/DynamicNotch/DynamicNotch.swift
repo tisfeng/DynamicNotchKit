@@ -7,6 +7,15 @@
 
 import SwiftUI
 
+private struct ScreenParametersSnapshot: Equatable {
+    let displayID: Int?
+    let frame: CGRect
+    let visibleFrame: CGRect
+    let notchSize: CGSize
+    let menubarHeight: CGFloat
+    let style: DynamicNotchStyle
+}
+
 // MARK: - DynamicNotch
 
 ///
@@ -82,6 +91,12 @@ public final class DynamicNotch<Expanded, CompactLeading, CompactTrailing>: Obse
     @Published private(set) var isHovering: Bool = false
 
     private var closePanelTask: Task<(), Never>? // Used to close the panel after hiding completes
+    private var screenObservationTask: Task<(), Never>?
+    private var screenDebounceTask: Task<(), Never>?
+    private var isProcessingScreenParametersChange: Bool = false
+    private var shouldProcessScreenParametersChangeAgain: Bool = false
+    private var lastKnownScreenDisplayID: Int?
+    private var lastScreenSnapshot: ScreenParametersSnapshot?
 
     /// Creates a new DynamicNotch with custom content and style.
     /// - Parameters:
@@ -107,6 +122,12 @@ public final class DynamicNotch<Expanded, CompactLeading, CompactTrailing>: Obse
         observeScreenParameters()
     }
 
+    deinit {
+        closePanelTask?.cancel()
+        screenDebounceTask?.cancel()
+        screenObservationTask?.cancel()
+    }
+
     /// Creates a new DynamicNotch with custom content and style. Does not support the compact appearance.
     /// - Parameters:
     ///   - hoverBehavior: defines the hover behavior of the notch, which allows for different interactions such as haptic feedback, increased shadow etc.
@@ -128,14 +149,15 @@ public final class DynamicNotch<Expanded, CompactLeading, CompactTrailing>: Obse
         self.disableCompactTrailing = true
     }
 
-    /// Observes screen parameters changes and re-initializes the window if necessary.
+    /// Observes screen parameters changes and coalesces updates to avoid repeated window rebuilds.
     private func observeScreenParameters() {
-        Task {
+        screenObservationTask?.cancel()
+        screenObservationTask = Task { @MainActor [weak self] in
+            guard let self else { return }
             let sequence = NotificationCenter.default.notifications(named: NSApplication.didChangeScreenParametersNotification)
-            for await _ in sequence.map(\.name) {
-                if let screen = NSScreen.screens.first {
-                    initializeWindow(screen: screen)
-                }
+            for await _ in sequence {
+                guard Task.isCancelled != true else { break }
+                self.scheduleScreenParametersRefresh()
             }
         }
     }
@@ -311,6 +333,118 @@ private extension DynamicNotch {
         return style
     }
 
+    @MainActor
+    func scheduleScreenParametersRefresh() {
+        screenDebounceTask?.cancel()
+        screenDebounceTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            try? await Task.sleep(for: .milliseconds(150))
+            guard Task.isCancelled != true else { return }
+            await self.handleScreenParametersChange()
+        }
+    }
+
+    @MainActor
+    func handleScreenParametersChange() async {
+        if isProcessingScreenParametersChange {
+            shouldProcessScreenParametersChangeAgain = true
+            return
+        }
+
+        isProcessingScreenParametersChange = true
+        defer {
+            isProcessingScreenParametersChange = false
+
+            if shouldProcessScreenParametersChangeAgain {
+                shouldProcessScreenParametersChangeAgain = false
+                scheduleScreenParametersRefresh()
+            }
+        }
+
+        guard let screen = resolveTargetScreen() else { return }
+
+        let snapshot = makeScreenSnapshot(for: screen)
+        guard snapshot != lastScreenSnapshot else { return }
+
+        lastScreenSnapshot = snapshot
+        lastKnownScreenDisplayID = snapshot.displayID
+
+        if state == .hidden {
+            updateScreenMetrics(for: screen)
+            return
+        }
+
+        refreshWindowForScreenChange(on: screen, style: snapshot.style)
+    }
+
+    func resolveTargetScreen() -> NSScreen? {
+        if let currentWindowScreen = windowController?.window?.screen {
+            return currentWindowScreen
+        }
+
+        if let lastKnownScreenDisplayID,
+           let rememberedScreen = NSScreen.screens.first(where: { $0.displayID == lastKnownScreenDisplayID }) {
+            return rememberedScreen
+        }
+
+        if let screenWithMouse = NSScreen.screenWithMouse {
+            return screenWithMouse
+        }
+
+        return NSScreen.screens.first
+    }
+
+    func makeScreenSnapshot(for screen: NSScreen) -> ScreenParametersSnapshot {
+        .init(
+            displayID: screen.displayID,
+            frame: screen.frame,
+            visibleFrame: screen.visibleFrame,
+            notchSize: screen.notchFrameWithMenubarAsBackup.size,
+            menubarHeight: screen.menubarHeight,
+            style: effectiveStyle(for: screen)
+        )
+    }
+
+    func updateScreenMetrics(for screen: NSScreen) {
+        notchSize = screen.notchFrameWithMenubarAsBackup.size
+        menubarHeight = screen.menubarHeight
+    }
+
+    func refreshWindowForScreenChange(on screen: NSScreen, style: DynamicNotchStyle) {
+        updateScreenMetrics(for: screen)
+
+        guard let window = windowController?.window else {
+            initializeWindow(screen: screen, orderFront: true)
+            return
+        }
+
+        let size = NSSize(
+            width: screen.frame.width / 2,
+            height: screen.frame.height / 2
+        )
+        let origin = NSPoint(
+            x: screen.frame.midX - (size.width / 2),
+            y: screen.frame.maxY - size.height
+        )
+
+        window.setFrame(
+            NSRect(
+                origin: origin,
+                size: size
+            ),
+            display: false
+        )
+
+        if let hostingView = window.contentView as? NSHostingView<NotchContentView<Expanded, CompactLeading, CompactTrailing>> {
+            hostingView.rootView = NotchContentView(dynamicNotch: self, style: style)
+            hostingView.layoutSubtreeIfNeeded()
+        } else {
+            window.contentView = NSHostingView(rootView: NotchContentView(dynamicNotch: self, style: style))
+        }
+
+        window.layoutIfNeeded()
+    }
+
     /// Initializes the window for the DynamicNotch.
     /// - Parameter screen: the screen to initialize the window on.
     /// - Parameter orderFront: whether to order the window front immediately (default: true)
@@ -318,11 +452,10 @@ private extension DynamicNotch {
         // so that we don't have a duplicate window
         deinitializeWindow()
 
-        notchSize = screen.notchFrameWithMenubarAsBackup.size
-        menubarHeight = screen.menubarHeight
+        updateScreenMetrics(for: screen)
 
-        let style = effectiveStyle(for: screen)
-        let view = NSHostingView(rootView: NotchContentView(dynamicNotch: self, style: style))
+        let effectiveStyle = effectiveStyle(for: screen)
+        let view = NSHostingView(rootView: NotchContentView(dynamicNotch: self, style: effectiveStyle))
 
         let panel = DynamicNotchPanel(
             contentRect: .zero,
@@ -356,6 +489,8 @@ private extension DynamicNotch {
         }
 
         windowController = .init(window: panel)
+        lastKnownScreenDisplayID = screen.displayID
+        lastScreenSnapshot = makeScreenSnapshot(for: screen)
     }
 
     /// Shows the window if it exists but hasn't been ordered front yet.
@@ -379,5 +514,12 @@ private extension DynamicNotch {
         guard let windowController else { return }
         windowController.close()
         self.windowController = nil
+    }
+}
+
+private extension NSScreen {
+    var displayID: Int? {
+        let key = NSDeviceDescriptionKey("NSScreenNumber")
+        return (deviceDescription[key] as? NSNumber)?.intValue
     }
 }
