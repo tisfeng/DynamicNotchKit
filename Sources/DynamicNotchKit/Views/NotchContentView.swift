@@ -52,7 +52,7 @@ struct NotchContentView<Expanded, CompactLeading, CompactTrailing>: View where E
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .environment(\.notchStyle, style)
-        .animation(.snappy(duration: 0.4), value: dynamicNotch.isHovering)
+        .animation(.snappy(duration: DynamicNotchStyle.transitionDuration), value: dynamicNotch.isHovering)
         .onAppear {
             if dynamicNotch.namespace == nil {
                 dynamicNotch.namespace = namespace

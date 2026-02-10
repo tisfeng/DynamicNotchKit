@@ -34,7 +34,11 @@ struct NotchView<Expanded, CompactLeading, CompactTrailing>: View where Expanded
     }
 
     private var hiddenWidth: CGFloat {
-        dynamicNotch.notchSize.width + (compactNotchCornerRadii.top * 2)
+        if dynamicNotch.hasHardwareNotch {
+            dynamicNotch.notchSize.width
+        } else {
+            dynamicNotch.notchSize.width + (compactNotchCornerRadii.top * 2)
+        }
     }
 
     private var hiddenHeight: CGFloat {
@@ -45,8 +49,24 @@ struct NotchView<Expanded, CompactLeading, CompactTrailing>: View where Expanded
         dynamicNotch.state == .hidden ? hiddenHeight : dynamicNotch.notchSize.height
     }
 
+    private var contentMinWidth: CGFloat {
+        if dynamicNotch.state == .hidden, dynamicNotch.hasHardwareNotch {
+            dynamicNotch.notchSize.width
+        } else {
+            minWidth
+        }
+    }
+
+    private var contentHorizontalPadding: CGFloat {
+        if dynamicNotch.state == .hidden, dynamicNotch.hasHardwareNotch {
+            0
+        } else {
+            topCornerRadius
+        }
+    }
+
     private var hiddenOpacity: Double {
-        dynamicNotch.state == .hidden && !dynamicNotch.hasHardwareNotch ? 0 : 1
+        dynamicNotch.state == .hidden ? 0 : 1
     }
 
     private var topCornerRadius: CGFloat {
@@ -111,9 +131,9 @@ struct NotchView<Expanded, CompactLeading, CompactTrailing>: View where Expanded
                 )
                 .offset(x: dynamicNotch.state == .compact ? -compactXOffset : 0)
         }
-        .padding(.horizontal, topCornerRadius)
+        .padding(.horizontal, contentHorizontalPadding)
         .fixedSize()
-        .frame(minWidth: minWidth, minHeight: contentMinHeight)
+        .frame(minWidth: contentMinWidth, minHeight: contentMinHeight)
         .onChange(of: dynamicNotch.state) { newState in
             if newState != .compact {
                 compactLeadingWidth = 0

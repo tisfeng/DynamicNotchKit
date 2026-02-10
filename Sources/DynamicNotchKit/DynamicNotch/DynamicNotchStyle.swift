@@ -25,6 +25,9 @@ import SwiftUI
 /// - ``floating(cornerRadius:)``
 ///
 public enum DynamicNotchStyle: Sendable {
+    /// Shared duration used by notch state animations and related timing waits.
+    static let transitionDuration: Double = 0.4
+
     /// Notch-style, meant to be used on screens with a notch
     ///
     /// Note that `topCornerRadius` and `bottomCornerRadius` are only use when the notch is in the expanded state.
@@ -65,18 +68,18 @@ public enum DynamicNotchStyle: Sendable {
 
     var openingAnimation: Animation {
         if isNotch {
-            .bouncy(duration: 0.4)
+            .bouncy(duration: Self.transitionDuration)
         } else {
-            .snappy(duration: 0.4)
+            .snappy(duration: Self.transitionDuration)
         }
     }
 
     var closingAnimation: Animation {
-        .smooth(duration: 0.4)
+        .smooth(duration: Self.transitionDuration)
     }
 
     var conversionAnimation: Animation {
-        .snappy(duration: 0.4)
+        .snappy(duration: Self.transitionDuration)
     }
 }
 
