@@ -33,6 +33,22 @@ struct NotchView<Expanded, CompactLeading, CompactTrailing>: View where Expanded
         dynamicNotch.notchSize.width + (topCornerRadius * 2)
     }
 
+    private var hiddenWidth: CGFloat {
+        dynamicNotch.notchSize.width + (compactNotchCornerRadii.top * 2)
+    }
+
+    private var hiddenHeight: CGFloat {
+        dynamicNotch.hasHardwareNotch ? dynamicNotch.notchSize.height : 0
+    }
+
+    private var contentMinHeight: CGFloat {
+        dynamicNotch.state == .hidden ? hiddenHeight : dynamicNotch.notchSize.height
+    }
+
+    private var hiddenOpacity: Double {
+        dynamicNotch.state == .hidden && !dynamicNotch.hasHardwareNotch ? 0 : 1
+    }
+
     private var topCornerRadius: CGFloat {
         dynamicNotch.state == .expanded ? expandedNotchCornerRadii.top : compactNotchCornerRadii.top
     }
@@ -67,13 +83,14 @@ struct NotchView<Expanded, CompactLeading, CompactTrailing>: View where Expanded
                 )
                 .padding(.horizontal, 0.5)
                 .frame(
-                    width: dynamicNotch.state != .hidden ? nil : minWidth,
-                    height: dynamicNotch.state != .hidden ? nil : dynamicNotch.notchSize.height
+                    width: dynamicNotch.state != .hidden ? nil : hiddenWidth,
+                    height: dynamicNotch.state != .hidden ? nil : hiddenHeight
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
             .offset(x: xOffset)
-            .animation(.smooth, value: [compactLeadingWidth, compactTrailingWidth])
+            .opacity(hiddenOpacity)
+            .animation(dynamicNotch.state == .hidden ? nil : .smooth, value: [compactLeadingWidth, compactTrailingWidth])
     }
 
     private func notchContent() -> some View {
@@ -96,7 +113,13 @@ struct NotchView<Expanded, CompactLeading, CompactTrailing>: View where Expanded
         }
         .padding(.horizontal, topCornerRadius)
         .fixedSize()
-        .frame(minWidth: minWidth, minHeight: dynamicNotch.notchSize.height)
+        .frame(minWidth: minWidth, minHeight: contentMinHeight)
+        .onChange(of: dynamicNotch.state) { newState in
+            if newState != .compact {
+                compactLeadingWidth = 0
+                compactTrailingWidth = 0
+            }
+        }
         .onHover(perform: dynamicNotch.updateHoverState)
     }
 

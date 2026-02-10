@@ -94,6 +94,7 @@ public final class DynamicNotch<Expanded, CompactLeading, CompactTrailing>: Obse
     @Published private(set) var state: DynamicNotchState = .hidden
     @Published private(set) var notchSize: CGSize = .zero
     @Published private(set) var menubarHeight: CGFloat = 0
+    @Published private(set) var hasHardwareNotch: Bool = false
     @Published private(set) var isHovering: Bool = false
 
     private var closePanelTask: Task<(), Never>? // Used to close the panel after hiding completes
@@ -201,7 +202,7 @@ extension DynamicNotch {
 
         closePanelTask?.cancel()
 
-        let needsNewWindow = state == .hidden || windowController?.window?.screen != screen
+        let needsNewWindow = windowController?.window == nil || windowController?.window?.screen != screen
 
         if needsNewWindow {
             // Create window but don't show it yet
@@ -215,21 +216,10 @@ extension DynamicNotch {
             // Now show window with animation already in progress
             showWindow()
         } else {
-            // Window exists and we're transitioning from compact state
-            Task { @MainActor in
-                if !skipHide {
-                    withAnimation(style.closingAnimation) {
-                        self.state = .hidden
-                    }
-
-                    guard self.state == .hidden else { return }
-
-                    try? await Task.sleep(for: .seconds(0.25))
-                }
-
-                withAnimation(style.conversionAnimation) {
-                    self.state = .expanded
-                }
+            // Keep conversion as a single-phase transition to avoid mid-state stutter.
+            let animation = state == .hidden ? style.openingAnimation : style.conversionAnimation
+            withAnimation(animation) {
+                self.state = .expanded
             }
         }
 
@@ -260,7 +250,7 @@ extension DynamicNotch {
 
         closePanelTask?.cancel()
 
-        let needsNewWindow = state == .hidden || windowController?.window?.screen != screen
+        let needsNewWindow = windowController?.window == nil || windowController?.window?.screen != screen
 
         if needsNewWindow {
             // Create window but don't show it yet
@@ -274,21 +264,10 @@ extension DynamicNotch {
             // Now show window with animation already in progress
             showWindow()
         } else {
-            // Window exists and we're transitioning from expanded state
-            Task { @MainActor in
-                if !skipHide {
-                    withAnimation(style.closingAnimation) {
-                        self.state = .hidden
-                    }
-
-                    try? await Task.sleep(for: .seconds(0.25))
-
-                    guard self.state == .hidden else { return }
-                }
-
-                withAnimation(style.conversionAnimation) {
-                    self.state = .compact
-                }
+            // Keep conversion as a single-phase transition to avoid mid-state stutter.
+            let animation = state == .hidden ? style.openingAnimation : style.conversionAnimation
+            withAnimation(animation) {
+                self.state = .compact
             }
         }
 
@@ -323,9 +302,10 @@ extension DynamicNotch {
         }
 
         logInfo("hide requested: start closing animation")
+        // Keep hover reset out of the closing animation to avoid jitter from competing animations.
+        isHovering = false
         withAnimation(style.closingAnimation) {
             state = .hidden
-            isHovering = false
         }
 
         closePanelTask?.cancel()
@@ -445,6 +425,7 @@ private extension DynamicNotch {
     func updateScreenMetrics(for screen: NSScreen) {
         notchSize = screen.notchFrameWithMenubarAsBackup.size
         menubarHeight = screen.menubarHeight
+        hasHardwareNotch = screen.hasNotch
     }
 
     func makePanelFrame(for screen: NSScreen) -> NSRect {
