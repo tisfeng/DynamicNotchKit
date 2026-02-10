@@ -69,6 +69,36 @@ struct NotchView<Expanded, CompactLeading, CompactTrailing>: View where Expanded
         dynamicNotch.state == .hidden && !dynamicNotch.hasHardwareNotch ? 0 : 1
     }
 
+    private var expandedTransition: AnyTransition {
+        if dynamicNotch.hasHardwareNotch {
+            .opacity
+        } else {
+            .blur(intensity: 10)
+                .combined(with: .scale(y: 0.6, anchor: .top))
+                .combined(with: .opacity)
+        }
+    }
+
+    private var compactLeadingTransition: AnyTransition {
+        if dynamicNotch.hasHardwareNotch {
+            .opacity.combined(with: .scale(x: 0.9, anchor: .trailing))
+        } else {
+            .blur(intensity: 10)
+                .combined(with: .scale(x: 0, anchor: .trailing))
+                .combined(with: .opacity)
+        }
+    }
+
+    private var compactTrailingTransition: AnyTransition {
+        if dynamicNotch.hasHardwareNotch {
+            .opacity.combined(with: .scale(x: 0.9, anchor: .leading))
+        } else {
+            .blur(intensity: 10)
+                .combined(with: .scale(x: 0, anchor: .leading))
+                .combined(with: .opacity)
+        }
+    }
+
     private var topCornerRadius: CGFloat {
         dynamicNotch.state == .expanded ? expandedNotchCornerRadii.top : compactNotchCornerRadii.top
     }
@@ -152,7 +182,7 @@ struct NotchView<Expanded, CompactLeading, CompactTrailing>: View where Expanded
                     .safeAreaInset(edge: .top, spacing: 0) { Color.clear.frame(height: 4) }
                     .safeAreaInset(edge: .bottom, spacing: 0) { Color.clear.frame(height: 8) }
                     .onGeometryChange(for: CGFloat.self, of: \.size.width) { compactLeadingWidth = $0 }
-                    .transition(.blur(intensity: 10).combined(with: .scale(x: 0, anchor: .trailing)).combined(with: .opacity))
+                    .transition(compactLeadingTransition)
             }
 
             Spacer()
@@ -165,7 +195,7 @@ struct NotchView<Expanded, CompactLeading, CompactTrailing>: View where Expanded
                     .safeAreaInset(edge: .top, spacing: 0) { Color.clear.frame(height: 4) }
                     .safeAreaInset(edge: .bottom, spacing: 0) { Color.clear.frame(height: 8) }
                     .onGeometryChange(for: CGFloat.self, of: \.size.width) { compactTrailingWidth = $0 }
-                    .transition(.blur(intensity: 10).combined(with: .scale(x: 0, anchor: .leading)).combined(with: .opacity))
+                    .transition(compactTrailingTransition)
             }
         }
         .frame(height: dynamicNotch.notchSize.height)
@@ -185,7 +215,7 @@ struct NotchView<Expanded, CompactLeading, CompactTrailing>: View where Expanded
         HStack(spacing: 0) {
             if dynamicNotch.state == .expanded {
                 dynamicNotch.expandedContent
-                    .transition(.blur(intensity: 10).combined(with: .scale(y: 0.6, anchor: .top)).combined(with: .opacity))
+                    .transition(expandedTransition)
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) { Color.clear.frame(height: dynamicNotch.notchSize.height) }
