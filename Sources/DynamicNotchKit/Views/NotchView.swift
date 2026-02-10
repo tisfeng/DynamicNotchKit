@@ -66,7 +66,7 @@ struct NotchView<Expanded, CompactLeading, CompactTrailing>: View where Expanded
     }
 
     private var hiddenOpacity: Double {
-        dynamicNotch.state == .hidden ? 0 : 1
+        dynamicNotch.state == .hidden && !dynamicNotch.hasHardwareNotch ? 0 : 1
     }
 
     private var topCornerRadius: CGFloat {
