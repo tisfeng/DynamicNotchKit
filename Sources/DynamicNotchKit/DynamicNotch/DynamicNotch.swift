@@ -431,7 +431,7 @@ private extension DynamicNotch {
     func makePanelFrame(for screen: NSScreen) -> NSRect {
         let size = NSSize(
             width: screen.frame.width / 2,
-            height: screen.frame.height / 2
+            height: screen.frame.height * (2.0 / 3.0)
         )
         let origin = NSPoint(
             x: screen.frame.midX - (size.width / 2),
