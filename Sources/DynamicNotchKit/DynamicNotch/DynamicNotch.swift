@@ -16,12 +16,6 @@ private struct ScreenParametersSnapshot: Equatable {
     let style: DynamicNotchStyle
 }
 
-private func logInfo(_ message: @autoclosure () -> String) {
-#if DEBUG
-    print("[DynamicNotch] \(message())")
-#endif
-}
-
 // MARK: - DynamicNotch
 
 ///
@@ -135,7 +129,6 @@ public final class DynamicNotch<Expanded, CompactLeading, CompactTrailing>: Obse
         self.compactLeadingContent = compactLeading()
         self.compactTrailingContent = compactTrailing()
 
-        logInfo("init style=\(String(describing: style))")
 
         observeScreenParameters()
     }
@@ -170,16 +163,13 @@ public final class DynamicNotch<Expanded, CompactLeading, CompactTrailing>: Obse
     /// Observes screen parameters changes and coalesces updates to avoid repeated window rebuilds.
     private func observeScreenParameters() {
         screenObservationTask?.cancel()
-        logInfo("start observing didChangeScreenParametersNotification")
         screenObservationTask = Task { @MainActor [weak self] in
             guard let self else { return }
             let sequence = NotificationCenter.default.notifications(named: NSApplication.didChangeScreenParametersNotification)
             for await _ in sequence {
                 guard Task.isCancelled != true else { break }
-                logInfo("didChangeScreenParametersNotification received")
                 self.scheduleScreenParametersRefresh()
             }
-            logInfo("screen observation task ended")
         }
     }
 
@@ -207,7 +197,6 @@ extension DynamicNotch {
 
     func _expand(on screen: NSScreen = NSScreen.screens[0], skipHide: Bool) async {
         guard state != .expanded else { return }
-        logInfo("expand requested: targetDisplayID=\(screen.displayID?.description ?? "nil"), skipHide=\(skipHide)")
 
         closePanelTask?.cancel()
 
@@ -243,16 +232,13 @@ extension DynamicNotch {
 
     func _compact(on screen: NSScreen = NSScreen.screens[0], skipHide: Bool) async {
         guard state != .compact else { return }
-        logInfo("compact requested: targetDisplayID=\(screen.displayID?.description ?? "nil"), skipHide=\(skipHide)")
 
         if effectiveStyle(for: screen).isFloating {
-            logInfo("compact redirected to hide because style is floating")
             await hide()
             return
         }
 
         if disableCompactLeading, disableCompactTrailing {
-            logInfo("compact redirected to hide because compact views are disabled")
             await hide()
             return
         }
@@ -296,13 +282,11 @@ extension DynamicNotch {
     /// Hides the popup, with a completion handler when the animation is completed.
     func _hide(completion: (() -> ())? = nil) {
         guard state != .hidden else {
-            logInfo("hide ignored: already hidden")
             completion?()
             return
         }
 
         if hoverBehavior.contains(.keepVisible), isHovering {
-            logInfo("hide deferred due to keepVisible+isHovering")
             Task {
                 try? await Task.sleep(for: .seconds(0.1))
                 _hide(completion: completion)
@@ -310,7 +294,6 @@ extension DynamicNotch {
             return
         }
 
-        logInfo("hide requested: start closing animation")
         // Keep hover reset out of the closing animation to avoid jitter from competing animations.
         isHovering = false
         withAnimation(style.closingAnimation) {
@@ -343,7 +326,6 @@ private extension DynamicNotch {
     @MainActor
     func scheduleScreenParametersRefresh() {
         screenDebounceTask?.cancel()
-        logInfo("schedule screen refresh (debounce 150ms)")
         screenDebounceTask = Task { @MainActor [weak self] in
             guard let self else { return }
             try? await Task.sleep(for: .milliseconds(150))
@@ -355,68 +337,54 @@ private extension DynamicNotch {
     @MainActor
     func handleScreenParametersChange() async {
         if isProcessingScreenParametersChange {
-            logInfo("screen change handler already running; mark for another pass")
             shouldProcessScreenParametersChangeAgain = true
             return
         }
 
-        logInfo("handle screen parameters change: begin")
         isProcessingScreenParametersChange = true
         defer {
             isProcessingScreenParametersChange = false
 
             if shouldProcessScreenParametersChangeAgain {
-                logInfo("screen change queued during processing; reschedule")
                 shouldProcessScreenParametersChangeAgain = false
                 scheduleScreenParametersRefresh()
             }
         }
 
         guard let screen = resolveTargetScreen() else {
-            logInfo("screen change ignored: no target screen")
             return
         }
 
         let snapshot = makeScreenSnapshot(for: screen)
         guard snapshot != lastScreenSnapshot else {
-            logInfo("screen change ignored: snapshot unchanged (displayID=\(screen.displayID?.description ?? "nil"))")
             return
         }
 
         lastScreenSnapshot = snapshot
         lastKnownScreenDisplayID = snapshot.displayID
-        logInfo("screen snapshot updated: displayID=\(snapshot.displayID?.description ?? "nil"), state=\(state)")
 
         if state == .hidden {
             updateScreenMetrics(for: screen)
-            logInfo("state is hidden: update metrics only")
             return
         }
 
         refreshWindowForScreenChange(on: screen, style: snapshot.style)
-        logInfo("state is visible: refreshed existing window on displayID=\(snapshot.displayID?.description ?? "nil")")
     }
 
     func resolveTargetScreen() -> NSScreen? {
         if let currentWindowScreen = windowController?.window?.screen {
-            logInfo("resolve screen: use current window screen displayID=\(currentWindowScreen.displayID?.description ?? "nil")")
             return currentWindowScreen
         }
 
         if let lastKnownScreenDisplayID,
            let rememberedScreen = NSScreen.screens.first(where: { $0.displayID == lastKnownScreenDisplayID }) {
-            logInfo("resolve screen: use remembered displayID=\(lastKnownScreenDisplayID)")
             return rememberedScreen
         }
 
         if let screenWithMouse = NSScreen.screenWithMouse {
-            logInfo("resolve screen: use mouse screen displayID=\(screenWithMouse.displayID?.description ?? "nil")")
             return screenWithMouse
         }
 
-        if let firstScreen = NSScreen.screens.first {
-            logInfo("resolve screen: fallback to first screen displayID=\(firstScreen.displayID?.description ?? "nil")")
-        }
         return NSScreen.screens.first
     }
 
@@ -469,12 +437,10 @@ private extension DynamicNotch {
         updateScreenMetrics(for: screen)
 
         guard let window = windowController?.window else {
-            logInfo("refresh window: no existing window, initialize with orderFront")
             initializeWindow(screen: screen, orderFront: true)
             return
         }
 
-        logInfo("refresh window: update frame/content in-place displayID=\(screen.displayID?.description ?? "nil")")
         window.setFrame(makePanelFrame(for: screen), display: false)
         updateWindowContent(window, style: style)
 
@@ -486,7 +452,6 @@ private extension DynamicNotch {
     /// - Parameter orderFront: whether to order the window front immediately (default: true)
     func initializeWindow(screen: NSScreen, orderFront: Bool = true) {
         // so that we don't have a duplicate window
-        logInfo("initialize window: displayID=\(screen.displayID?.description ?? "nil"), orderFront=\(orderFront)")
         deinitializeWindow()
 
         updateScreenMetrics(for: screen)
@@ -513,13 +478,11 @@ private extension DynamicNotch {
         windowController = .init(window: panel)
         lastKnownScreenDisplayID = screen.displayID
         lastScreenSnapshot = makeScreenSnapshot(for: screen)
-        logInfo("initialize window complete: state=\(state), displayID=\(screen.displayID?.description ?? "nil")")
     }
 
     /// Shows the window if it exists but hasn't been ordered front yet.
     func showWindow() {
         guard let window = windowController?.window else { return }
-        logInfo("show window")
 
         // Start invisible to hide any initial frame glitches
         window.alphaValue = 0
@@ -536,7 +499,6 @@ private extension DynamicNotch {
     /// Deinitializes the window and removes it from the screen.
     func deinitializeWindow() {
         guard let windowController else { return }
-        logInfo("deinitialize window")
         windowController.close()
         self.windowController = nil
     }
