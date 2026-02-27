@@ -18,6 +18,15 @@ private struct ScreenParametersSnapshot: Equatable {
 
 // MARK: - DynamicNotch
 
+/// Shared layout constants used by DynamicNotch panel sizing.
+public enum DynamicNotchLayout {
+    /// Default panel width ratio relative to screen width.
+    public static let widthRatio: CGFloat = 0.6
+
+    /// Default panel height ratio relative to screen height.
+    public static let heightRatio: CGFloat = 0.8
+}
+
 ///
 /// A customizable, notch-styled window for macOS applications.
 ///
@@ -65,15 +74,6 @@ private struct ScreenParametersSnapshot: Equatable {
 /// > This can be helpful if you wish to keep the notch open during hover events or add effects such as scaling or haptic feedback.
 ///
 public final class DynamicNotch<Expanded, CompactLeading, CompactTrailing>: ObservableObject, DynamicNotchControllable where Expanded: View, CompactLeading: View, CompactTrailing: View {
-    /// Shared layout constants used by DynamicNotch panel sizing.
-    public enum Layout {
-        /// Default panel width ratio relative to screen width.
-        public static var widthRatio: CGFloat { 0.6 }
-
-        /// Default panel height ratio relative to screen height.
-        public static var heightRatio: CGFloat { 0.8 }
-    }
-
     /// Public in case user wants to modify the underlying NSPanel
     public var windowController: NSWindowController?
 
@@ -407,8 +407,8 @@ private extension DynamicNotch {
 
     func makePanelFrame(for screen: NSScreen) -> NSRect {
         let size = NSSize(
-            width: screen.frame.width * Layout.widthRatio,
-            height: screen.frame.height * Layout.heightRatio
+            width: screen.frame.width * DynamicNotchLayout.widthRatio,
+            height: screen.frame.height * DynamicNotchLayout.heightRatio
         )
         let origin = NSPoint(
             x: screen.frame.midX - (size.width / 2),
